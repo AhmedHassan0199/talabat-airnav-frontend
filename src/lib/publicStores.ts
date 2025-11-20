@@ -11,6 +11,9 @@ export interface PublicStore {
   min_order_amount: number;
   delivery_fee: number;
   is_active: boolean;
+  profile_image_url?: string;
+  avg_rating: number;
+  reviews_count: number;
 }
 
 export interface StoreWithProducts {

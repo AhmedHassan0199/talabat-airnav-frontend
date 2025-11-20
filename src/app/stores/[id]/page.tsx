@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "../../../components/AuthProvider";
 import { useRouter, useParams } from "next/navigation";
 import MainLayout from "../../../components/MainLayout";
 import { fetchStoreWithProducts, StoreWithProducts } from "../../../lib/publicStores";
+import { fetchStoreReviews, addOrUpdateStoreReview, StoreReview } from "../../../lib/reviews";
 
 const CATEGORY_LABELS: Record<string, string> = {
   FOOD: "أكل بيتي / مطبخ",
@@ -19,16 +21,26 @@ export default function StoreDetailsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const { user, token } = useAuth();
+  const [reviews, setReviews] = useState<StoreReview[]>([]);
+  const [rating, setRating] = useState<number>(5);
+  const [comment, setComment] = useState("");
+  const [savingReview, setSavingReview] = useState(false);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
+
+
   useEffect(() => {
     const id = Number(params.id);
     if (!id) return;
 
     const run = async () => {
       try {
-        setIsLoading(true);
-        setError(null);
-        const res = await fetchStoreWithProducts(id);
-        setData(res);
+        const [storeRes, reviewsRes] = await Promise.all([
+          fetchStoreWithProducts(id),
+          fetchStoreReviews(id),
+        ]);
+        setData(storeRes);
+        setReviews(reviewsRes);
       } catch (err: any) {
         console.error(err);
         setError(err.message || "تعذر تحميل بيانات المتجر");
@@ -76,11 +88,27 @@ export default function StoreDetailsPage() {
           <>
             {/* كروت معلومات المتجر */}
             <div className="grid gap-3 md:grid-cols-3">
-              <div className="md:col-span-2 bg-white rounded-2xl shadow-sm p-4">
-                <h2 className="text-sm font-semibold mb-2">عن المتجر</h2>
-                <p className="text-sm text-[var(--text-muted)]">
-                  {store.description || "لا يوجد وصف متاح حتى الآن."}
-                </p>
+              <div className="md:col-span-2 bg-white rounded-2xl shadow-sm p-4 flex gap-3">
+                {store.profile_image_url && (
+                  <img
+                    src={store.profile_image_url}
+                    alt={store.name}
+                    className="w-20 h-20 rounded-xl object-cover flex-shrink-0"
+                  />
+                )}
+                <div>
+                  <h2 className="text-lg font-semibold mb-1">{store.name}</h2>
+                  <p className="text-xs text-[var(--text-muted)] mb-1">
+                    {CATEGORY_LABELS[store.category] || store.category}
+                  </p>
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                    <span>⭐ {store.avg_rating.toFixed(1)}</span>
+                    <span>({store.reviews_count} تقييم)</span>
+                  </div>
+                  <p className="mt-2 text-sm text-[var(--text-muted)]">
+                    {store.description || "لا يوجد وصف متاح حتى الآن."}
+                  </p>
+                </div>
               </div>
               <div className="bg-white rounded-2xl shadow-sm p-4 text-sm">
                 <h2 className="text-sm font-semibold mb-2">تفاصيل الطلب</h2>
@@ -163,6 +191,108 @@ export default function StoreDetailsPage() {
                       >
                         إضافة للسلة
                       </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* المراجعات */}
+            <div className="bg-white rounded-2xl shadow-sm p-4 mt-4">
+              <h2 className="text-lg font-semibold mb-3">آراء العملاء</h2>
+
+              {/* إضافة مراجعة */}
+              {user && user.role === "CUSTOMER" ? (
+                <form
+                  className="mb-4 space-y-2"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!token || !store) return;
+                    try {
+                      setSavingReview(true);
+                      setReviewsError(null);
+                      const saved = await addOrUpdateStoreReview(
+                        token,
+                        store.id,
+                        rating,
+                        comment
+                      );
+                      // حدّث الليست (لو هو كان موجود قبل كده استبدله)
+                      setReviews((prev) => {
+                        const idx = prev.findIndex((r) => r.id === saved.id);
+                        if (idx >= 0) {
+                          const copy = [...prev];
+                          copy[idx] = saved;
+                          return copy;
+                        }
+                        return [saved, ...prev];
+                      });
+                    } catch (err: any) {
+                      console.error(err);
+                      setReviewsError(err.message || "تعذر حفظ المراجعة");
+                    } finally {
+                      setSavingReview(false);
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-2 text-xs">
+                    <span>تقييمك:</span>
+                    <select
+                      value={rating}
+                      onChange={(e) => setRating(Number(e.target.value))}
+                      className="rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                    >
+                      {[5, 4, 3, 2, 1].map((r) => (
+                        <option key={r} value={r}>
+                          {r} ⭐
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <textarea
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                    placeholder="اكتب رأيك عن المتجر أو الخدمة..."
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    rows={3}
+                  />
+                  {reviewsError && (
+                    <div className="text-xs text-red-600">{reviewsError}</div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={savingReview}
+                    className="rounded-xl bg-[var(--primary)] text-white text-sm px-4 py-2 hover:bg-[var(--primary-dark)] disabled:opacity-60"
+                  >
+                    {savingReview ? "جاري الحفظ..." : "إرسال التقييم"}
+                  </button>
+                </form>
+              ) : (
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  قم بتسجيل الدخول كعميل لكتابة تقييمك.
+                </p>
+              )}
+
+              {/* عرض المراجعات */}
+              {reviews.length === 0 ? (
+                <p className="text-sm text-[var(--text-muted)]">
+                  لا توجد مراجعات بعد لهذا المتجر.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {reviews.map((r) => (
+                    <div
+                      key={r.id}
+                      className="border border-gray-100 rounded-2xl p-3 text-sm"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium">{r.customer_name}</span>
+                        <span className="text-xs">
+                          ⭐ {r.rating}
+                        </span>
+                      </div>
+                      {r.comment && (
+                        <p className="text-xs text-[var(--text-muted)]">{r.comment}</p>
+                      )}
                     </div>
                   ))}
                 </div>

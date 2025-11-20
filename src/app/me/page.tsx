@@ -1,107 +1,149 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MainLayout from "../../components/MainLayout";
 import { useAuth } from "../../components/AuthProvider";
+import { fetchMyOrders, fetchMyReviews, MyOrderSummary, MyReviewSummary } from "../../lib/orders";
 
-
-export default function MyProfilePage() {
-  const { user, token, refreshMe, isLoading } = useAuth();
+export default function MePage() {
+  const { user, token, isLoading } = useAuth();
   const router = useRouter();
 
+  const [orders, setOrders] = useState<MyOrderSummary[]>([]);
+  const [reviews, setReviews] = useState<MyReviewSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    if (!isLoading && !token) {
+    if (isLoading) return;
+    if (!token) {
       router.replace("/login");
+      return;
     }
-  }, [isLoading, token, router]);
 
-  useEffect(() => {
-    if (token) {
-      refreshMe();
-    }
-  }, [token, refreshMe]);
+    const run = async () => {
+      try {
+        setLoadingData(true);
+        setError(null);
+        if (user?.role === "CUSTOMER") {
+          const [o, r] = await Promise.all([
+            fetchMyOrders(token),
+            fetchMyReviews(token),
+          ]);
+          setOrders(o);
+          setReviews(r);
+        }
+        // لو SELLER ممكن نرجعلهم حاجة مختلفة بعدين
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || "تعذر تحميل البيانات");
+      } finally {
+        setLoadingData(false);
+      }
+    };
 
-  if (isLoading || (!user && token)) {
+    run();
+  }, [user, token, isLoading, router]);
+
+  if (isLoading || !user || !token) {
     return (
       <MainLayout>
-        <p className="text-sm text-[var(--text-muted)]">
-          جاري تحميل بيانات الحساب...
-        </p>
+        <p className="text-sm text-[var(--text-muted)]">جاري التحقق من حسابك...</p>
       </MainLayout>
     );
   }
 
-  if (!token || !user) {
-    return null;
-  }
+  // لو Customer نعرض الملخص
+  if (user.role === "CUSTOMER") {
+    return (
+      <MainLayout>
+        <div className="space-y-4">
+          <h1 className="text-xl font-semibold mb-2">
+            حسابي
+          </h1>
+          <p className="text-sm text-[var(--text-muted)] mb-2">
+            ملخص آخر طلباتك وآخر مراجعاتك على المتاجر.
+          </p>
 
-  const isSeller = user.role === "SELLER";
+          {error && (
+            <div className="text-sm text-red-600">{error}</div>
+          )}
 
-  return (
-    <MainLayout>
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="md:col-span-2 bg-white rounded-2xl shadow-sm p-5">
-          <h2 className="text-lg font-semibold mb-4">البيانات الشخصية</h2>
-          <div className="space-y-2 text-sm">
-            <div>
-              <span className="font-medium">الاسم:</span> {user.full_name}
-            </div>
-            <div>
-              <span className="font-medium">اسم المستخدم:</span>{" "}
-              {user.username}
-            </div>
-            <div>
-              <span className="font-medium">البريد الإلكتروني:</span>{" "}
-              {user.email}
-            </div>
-            <div>
-              <span className="font-medium">الدور:</span>{" "}
-              {user.role === "CUSTOMER"
-                ? "عميل"
-                : user.role === "SELLER"
-                ? "بائع"
-                : user.role}
-            </div>
-            <div>
-              <span className="font-medium">الوحدة:</span>{" "}
-              {user.building
-                ? `عمارة ${user.building} - دور ${user.floor || "-"} - شقة ${
-                    user.apartment || "-"
-                  }`
-                : "لم يتم تسجيل بيانات الوحدة"}
-            </div>
-            {user.phone && (
-              <div>
-                <span className="font-medium">الموبايل:</span> {user.phone}
+          {/* آخر الطلبات */}
+          <div className="bg-white rounded-2xl shadow-sm p-4">
+            <h2 className="text-lg font-semibold mb-2">آخر الطلبات</h2>
+            {loadingData ? (
+              <p className="text-sm text-[var(--text-muted)]">جاري التحميل...</p>
+            ) : orders.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                لم تقم بأي طلبات حتى الآن.
+              </p>
+            ) : (
+              <div className="space-y-2 text-sm">
+                {orders.map((o) => (
+                  <div
+                    key={o.id}
+                    className="border border-gray-100 rounded-xl px-3 py-2 flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="font-medium">{o.store_name}</div>
+                      <div className="text-xs text-[var(--text-muted)]">
+                        حالة الطلب: {o.status}
+                      </div>
+                    </div>
+                    <div className="text-right text-xs">
+                      <div className="font-semibold">{o.total_amount} ج</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* مراجعاتي */}
+          <div className="bg-white rounded-2xl shadow-sm p-4">
+            <h2 className="text-lg font-semibold mb-2">مراجعاتي</h2>
+            {loadingData ? (
+              <p className="text-sm text-[var(--text-muted)]">جاري التحميل...</p>
+            ) : reviews.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                لم تضف أي مراجعات بعد.
+              </p>
+            ) : (
+              <div className="space-y-2 text-sm">
+                {reviews.map((r) => (
+                  <div
+                    key={r.id}
+                    className="border border-gray-100 rounded-xl px-3 py-2"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium">{r.store_name}</span>
+                      <span className="text-xs">⭐ {r.rating}</span>
+                    </div>
+                    {r.comment && (
+                      <p className="text-xs text-[var(--text-muted)]">
+                        {r.comment}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
+      </MainLayout>
+    );
+  }
 
-        <div className="bg-white rounded-2xl shadow-sm p-5">
-          <h2 className="text-lg font-semibold mb-4">وضع الحساب</h2>
-          {!isSeller && (
-            <p className="text-sm text-[var(--text-muted)]">
-              حسابك حاليًا كـ <strong>عميل</strong>. قريبًا هتقدر تطلب ترقية
-              لحساب <strong>بائع</strong> وتفتح مطبخك أو متجرك على السوق.
-            </p>
-          )}
-          {isSeller && (
-            <div className="space-y-2 text-sm">
-              <p className="text-[var(--text-muted)]">
-                أنت مسجّل كبائع. من هنا تقدر تدير بيانات متجرك في السوق.
-              </p>
-              <button
-                className="mt-2 w-full rounded-xl border px-3 py-2 text-xs hover:bg-gray-50"
-                onClick={() => router.push("/seller/store")}
-              >
-                إدارة المتجر
-              </button>
-            </div>
-          )}
-        </div>
+  // لو SELLER – ممكن نسيبها بسيطة حالياً
+  return (
+    <MainLayout>
+      <div className="space-y-3">
+        <h1 className="text-xl font-semibold">حسابي (بائع)</h1>
+        <p className="text-sm text-[var(--text-muted)]">
+          سيتم إضافة لوحة تحكم للبائع هنا فيما بعد.
+        </p>
       </div>
     </MainLayout>
   );

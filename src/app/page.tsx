@@ -153,7 +153,20 @@ export default function HomePage() {
                   href={`/stores/${store.id}`}
                   className="block rounded-2xl bg-white shadow-sm border border-gray-100 p-4 hover:shadow-md transition"
                 >
-                  <div className="flex justify-between items-start gap-2">
+                  <div className="flex justify-between items-start gap-3">
+                    {/* صورة المتجر */}
+                    {store.profile_image_url ? (
+                      <img
+                        src={store.profile_image_url}
+                        alt={store.name}
+                        className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center text-xs text-gray-400 flex-shrink-0">
+                        لا صورة
+                      </div>
+                    )}
+
                     <div className="flex-1">
                       <h2 className="font-semibold text-base mb-1">
                         {store.name}
@@ -161,8 +174,15 @@ export default function HomePage() {
                       <p className="text-xs text-[var(--text-muted)] mb-1">
                         {CATEGORY_LABELS[store.category] || store.category}
                       </p>
+
+                      {/* Rating */}
+                      <div className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
+                        <span>⭐ {store.avg_rating.toFixed(1)}</span>
+                        <span>({store.reviews_count} تقييم)</span>
+                      </div>
+
                       {store.description && (
-                        <p className="text-xs text-[var(--text-muted)] line-clamp-2">
+                        <p className="text-xs text-[var(--text-muted)] line-clamp-2 mt-1">
                           {store.description}
                         </p>
                       )}

@@ -1,255 +1,391 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, FormEvent } from "react";
 import MainLayout from "../../../components/MainLayout";
 import { useAuth } from "../../../components/AuthProvider";
-import { fetchMyStore, saveMyStore, StoreInfo } from "../../../lib/store";
+import { useRouter } from "next/navigation";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE || "/api";
+
+type SellerStore = {
+  id: number;
+  name: string;
+  description?: string;
+  category: string;
+  min_order_amount: number;
+  delivery_fee: number;
+  profile_image_url?: string;
+  is_active: boolean;
+};
+
+const CATEGORIES: { value: string; label: string }[] = [
+  { value: "FOOD", label: "أكل بيتي / مطبخ" },
+  { value: "DESSERT", label: "حلويات" },
+  { value: "CLOTHES", label: "ملابس" },
+];
+
+async function fetchMyStore(token: string): Promise<SellerStore | null> {
+  const res = await fetch(`${API_BASE_URL}/stores/my`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+  if (res.status === 404) {
+    return null;
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "تعذر تحميل بيانات المتجر");
+  }
+  return data;
+}
+
+async function updateMyStore(
+  token: string,
+  payload: Partial<SellerStore>
+): Promise<SellerStore> {
+  const res = await fetch(`${API_BASE_URL}/stores/my`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "تعذر حفظ بيانات المتجر");
+  }
+  return data;
+}
+
+async function uploadStoreImage(
+  token: string,
+  file: File
+): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(
+    `${API_BASE_URL}/uploads/store-image`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    }
+  );
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "فشل رفع صورة المتجر");
+  }
+  // backend بيرجع { "url": "/media/stores/..." }
+  return data.url as string;
+}
 
 export default function SellerStorePage() {
   const { user, token, isLoading } = useAuth();
   const router = useRouter();
 
-  const [store, setStore] = useState<StoreInfo | null>(null);
-  const [isFetching, setIsFetching] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [store, setStore] = useState<SellerStore | null>(null);
 
-  // form fields
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("FOOD");
-  const [minOrderAmount, setMinOrderAmount] = useState<string>("0");
-  const [deliveryFee, setDeliveryFee] = useState<string>("0");
+  const [minOrderAmount, setMinOrderAmount] = useState<string>("");
+  const [deliveryFee, setDeliveryFee] = useState<string>("");
 
-  // حماية route: لازم token + role SELLER
+  const [profileImageUrl, setProfileImageUrl] = useState<string | undefined>(undefined);
+  const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
+
+  const [loadingStore, setLoadingStore] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
   useEffect(() => {
     if (isLoading) return;
-
     if (!token) {
       router.replace("/login");
       return;
     }
-
-    if (!user) return;
-
-    if (user.role !== "SELLER") {
-      // لو مش بائع يرجعه على البروفايل
-      router.replace("/me");
+    if (user && user.role !== "SELLER") {
+      // ممكن نغيرها بعدين لتعامل ألطف
+      router.replace("/");
       return;
     }
-  }, [user, token, isLoading, router]);
 
-  // جلب بيانات المتجر
-  useEffect(() => {
     const run = async () => {
-      if (!token || !user || user.role !== "SELLER") {
-        setIsFetching(false);
-        return;
-      }
       try {
-        setIsFetching(true);
+        setLoadingStore(true);
         setError(null);
-        const myStore = await fetchMyStore(token);
-        if (myStore) {
-          setStore(myStore);
-          setName(myStore.name);
-          setDescription(myStore.description || "");
-          setCategory(myStore.category || "FOOD");
-          setMinOrderAmount(String(myStore.min_order_amount ?? 0));
-          setDeliveryFee(String(myStore.delivery_fee ?? 0));
+        const s = await fetchMyStore(token);
+        if (s) {
+          setStore(s);
+          setName(s.name || "");
+          setDescription(s.description || "");
+          setCategory(s.category || "FOOD");
+          setMinOrderAmount(
+            s.min_order_amount != null ? String(s.min_order_amount) : ""
+          );
+          setDeliveryFee(
+            s.delivery_fee != null ? String(s.delivery_fee) : ""
+          );
+          setProfileImageUrl(s.profile_image_url || undefined);
         }
       } catch (err: any) {
         console.error(err);
         setError(err.message || "تعذر تحميل بيانات المتجر");
       } finally {
-        setIsFetching(false);
+        setLoadingStore(false);
       }
     };
+
     run();
-  }, [token, user]);
+  }, [user, token, isLoading, router]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setSuccess(null);
-
-    if (!token) {
-      setError("برجاء تسجيل الدخول مرة أخرى.");
-      return;
-    }
-
-    if (!name.trim()) {
-      setError("اسم المتجر مطلوب.");
-      return;
-    }
+    if (!token) return;
 
     try {
-      setIsSaving(true);
-      const saved = await saveMyStore(token, {
+      setSaving(true);
+      setSuccessMsg(null);
+      setError(null);
+
+      let finalProfileImageUrl = profileImageUrl;
+
+      if (profileImageFile) {
+        setUploadingImage(true);
+        try {
+          finalProfileImageUrl = await uploadStoreImage(
+            token,
+            profileImageFile
+          );
+        } finally {
+          setUploadingImage(false);
+        }
+      }
+
+      const payload: Partial<SellerStore> = {
         name: name.trim(),
         description: description.trim() || undefined,
         category,
-        min_order_amount: Number(minOrderAmount || 0),
-        delivery_fee: Number(deliveryFee || 0),
-      });
-      setStore(saved);
-      setSuccess("تم حفظ بيانات المتجر بنجاح.");
+        min_order_amount: minOrderAmount
+          ? Number(minOrderAmount)
+          : 0,
+        delivery_fee: deliveryFee ? Number(deliveryFee) : 0,
+        profile_image_url: finalProfileImageUrl,
+      };
+
+      const updated = await updateMyStore(token, payload);
+      setStore(updated);
+      setProfileImageUrl(updated.profile_image_url || finalProfileImageUrl);
+      setSuccessMsg("تم حفظ بيانات المتجر بنجاح ✅");
+      setProfileImageFile(null);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "حدث خطأ أثناء حفظ بيانات المتجر");
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
+
+  if (isLoading || !user || !token) {
+    return (
+      <MainLayout>
+        <p className="text-sm text-[var(--text-muted)]">
+          جاري التحقق من حسابك...
+        </p>
+      </MainLayout>
+    );
+  }
+
+  if (user.role !== "SELLER") {
+    return (
+      <MainLayout>
+        <p className="text-sm text-[var(--text-muted)]">
+          هذه الصفحة متاحة للبائعين فقط.
+        </p>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
       <div className="space-y-4">
-        <h1 className="text-xl font-semibold mb-2">إدارة المتجر</h1>
+        <div>
+          <h1 className="text-xl font-semibold mb-1">
+            إدارة بيانات المتجر
+          </h1>
+          <p className="text-sm text-[var(--text-muted)]">
+            عدّل اسم المتجر، الوصف، معلومات الطلب، وصورة البروفايل
+            التي ستظهر للعملاء في صفحة سوق الكمبوند.
+          </p>
+        </div>
 
-        {isFetching && (
+        {loadingStore ? (
           <p className="text-sm text-[var(--text-muted)]">
             جاري تحميل بيانات المتجر...
           </p>
-        )}
-
-        {!isFetching && (
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="md:col-span-2 bg-white rounded-2xl shadow-sm p-5">
-              <h2 className="text-lg font-semibold mb-4">
-                {store ? "تعديل بيانات المتجر" : "إنشاء متجر جديد"}
-              </h2>
-              <form className="space-y-4" onSubmit={handleSubmit}>
-                <div>
-                  <label className="block mb-1 text-sm font-medium text-[var(--text-main)]">
-                    اسم المتجر
-                  </label>
-                  <input
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="مثال: مطبخ أم محمد / Ahmed Store"
-                  />
-                </div>
-
-                <div>
-                  <label className="block mb-1 text-sm font-medium text-[var(--text-main)]">
-                    وصف المتجر
-                  </label>
-                  <textarea
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="مثال: أكل بيتى طازة، يومياً من الساعة ١ ظهراً حتى ٩ مساءً"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="block mb-1 text-sm font-medium text-[var(--text-main)]">
-                      نوع المتجر
-                    </label>
-                    <select
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] bg-white"
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                    >
-                      <option value="FOOD">أكل بيتي / مطبخ</option>
-                      <option value="DESSERT">حلويات</option>
-                      <option value="CLOTHES">ملابس</option>
-                      <option value="ACCESSORIES">إكسسوارات</option>
-                      <option value="OTHER">أخرى</option>
-                    </select>
-                  </div>
-                  <div className="flex-1">
-                    <label className="block mb-1 text-sm font-medium text-[var(--text-main)]">
-                      أقل قيمة للطلب (جنيه)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
-                      value={minOrderAmount}
-                      onChange={(e) => setMinOrderAmount(e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block mb-1 text-sm font-medium text-[var(--text-main)]">
-                      مصاريف التوصيل (جنيه)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
-                      value={deliveryFee}
-                      onChange={(e) => setDeliveryFee(e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {error}
-                  </div>
-                )}
-
-                {success && (
-                  <div className="rounded-xl bg-green-50 px-3 py-2 text-sm text-green-700">
-                    {success}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="w-full flex items-center justify-center rounded-xl bg-[var(--primary)] text-white text-sm font-medium px-4 py-2.5 hover:bg-[var(--primary-dark)] transition disabled:opacity-70 disabled:cursor-not-allowed"
-                >
-                  {isSaving
-                    ? "جاري حفظ بيانات المتجر..."
-                    : store
-                    ? "حفظ التعديلات"
-                    : "إنشاء المتجر"}
-                </button>
-              </form>
-            </div>
-            {store && (
-              <div className="bg-white rounded-2xl shadow-sm p-5 text-sm">
-                <h2 className="text-lg font-semibold mb-4">
-                  ملخص المتجر الحالي
-                </h2>
-                <button
-                    onClick={() => router.push("/seller/products")}
-                    className="mb-4 rounded-xl border px-3 py-2 text-xs hover:bg-gray-50"
-                    >
-                    إدارة المنتجات
-                </button>
-                <p className="mb-1">
-                  <span className="font-medium">الاسم:</span> {store.name}
-                </p>
-                <p className="mb-1">
-                  <span className="font-medium">النوع:</span> {store.category}
-                </p>
-                <p className="mb-1">
-                  <span className="font-medium">الحد الأدنى للطلب:</span>{" "}
-                  {store.min_order_amount} ج
-                </p>
-                <p className="mb-1">
-                  <span className="font-medium">مصاريف التوصيل:</span>{" "}
-                  {store.delivery_fee} ج
-                </p>
-                {store.description && (
-                  <p className="mt-2 text-[var(--text-muted)]">
-                    {store.description}
-                  </p>
-                )}
+        ) : (
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white rounded-2xl shadow-sm p-4 space-y-4"
+          >
+            {error && (
+              <div className="text-sm text-red-600">{error}</div>
+            )}
+            {successMsg && (
+              <div className="text-sm text-green-600">
+                {successMsg}
               </div>
             )}
-          </div>
+
+            {/* صورة البروفايل */}
+            <div className="flex items-center gap-4">
+              <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center overflow-hidden">
+                {profileImageFile ? (
+                  <img
+                    src={URL.createObjectURL(profileImageFile)}
+                    alt="صورة المتجر"
+                    className="w-full h-full object-cover"
+                  />
+                ) : profileImageUrl ? (
+                  <img
+                    src={profileImageUrl}
+                    alt="صورة المتجر"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-xs text-gray-400">
+                    لا توجد صورة
+                  </span>
+                )}
+              </div>
+
+              <div className="flex-1 space-y-1">
+                <label className="block text-sm font-medium">
+                  صورة بروفايل المتجر
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setProfileImageFile(file);
+                  }}
+                  className="block w-full text-xs text-gray-500
+                             file:mr-3 file:py-2 file:px-3
+                             file:rounded-xl file:border-0
+                             file:text-xs file:font-semibold
+                             file:bg-[var(--primary)] file:text-white
+                             hover:file:bg-[var(--primary-dark)]"
+                />
+                <p className="text-[10px] text-[var(--text-muted)]">
+                  هذه الصورة ستظهر في بطاقة المتجر وفي صفحة تفاصيل
+                  المتجر للعملاء.
+                </p>
+              </div>
+            </div>
+
+            {/* اسم المتجر */}
+            <div>
+              <label className="block mb-1 text-sm font-medium">
+                اسم المتجر
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                placeholder="مثال: مطبخ أم أحمد - أكل بيتي"
+                required
+              />
+            </div>
+
+            {/* الوصف */}
+            <div>
+              <label className="block mb-1 text-sm font-medium">
+                وصف المتجر
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                rows={3}
+                placeholder="اكتب نبذة عن نوع الأكل/المنتجات التي تقدمها، مميزاتك، مواعيد التواجد..."
+              />
+            </div>
+
+            {/* الفئة */}
+            <div>
+              <label className="block mb-1 text-sm font-medium">
+                نوع المتجر
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+              >
+                {CATEGORIES.map((cat) => (
+                  <option key={cat.value} value={cat.value}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* الحد الأدنى + مصاريف التوصيل */}
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  الحد الأدنى للطلب (جنيه)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={minOrderAmount}
+                  onChange={(e) => setMinOrderAmount(e.target.value)}
+                  className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                  placeholder="مثال: 50"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  مصاريف التوصيل (جنيه)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={deliveryFee}
+                  onChange={(e) => setDeliveryFee(e.target.value)}
+                  className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                  placeholder="مثال: 10"
+                />
+              </div>
+            </div>
+
+            {/* زر الحفظ */}
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={saving || uploadingImage}
+                className="rounded-2xl bg-[var(--primary)] text-white text-sm px-6 py-2.5 hover:bg-[var(--primary-dark)] disabled:opacity-60"
+              >
+                {saving
+                  ? uploadingImage
+                    ? "جاري رفع الصورة وحفظ البيانات..."
+                    : "جاري حفظ البيانات..."
+                  : "حفظ بيانات المتجر"}
+              </button>
+            </div>
+          </form>
         )}
       </div>
     </MainLayout>
