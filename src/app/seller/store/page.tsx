@@ -121,7 +121,6 @@ export default function SellerStorePage() {
               <h2 className="text-lg font-semibold mb-4">
                 {store ? "تعديل بيانات المتجر" : "إنشاء متجر جديد"}
               </h2>
-
               <form className="space-y-4" onSubmit={handleSubmit}>
                 <div>
                   <label className="block mb-1 text-sm font-medium text-[var(--text-main)]">
@@ -218,7 +217,12 @@ export default function SellerStorePage() {
                 </button>
               </form>
             </div>
-
+            <button
+                onClick={() => router.push("/seller/products")}
+                className="mb-4 rounded-xl border px-3 py-2 text-xs hover:bg-gray-50"
+                >
+                إدارة المنتجات
+            </button>
             {store && (
               <div className="bg-white rounded-2xl shadow-sm p-5 text-sm">
                 <h2 className="text-lg font-semibold mb-4">
