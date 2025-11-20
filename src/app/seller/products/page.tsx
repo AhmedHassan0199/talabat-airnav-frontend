@@ -46,8 +46,9 @@ async function fetchMyStore(token: string): Promise<SellerStore | null> {
   return data;
 }
 
+// ✅ USE EXISTING BACKEND ROUTES
 async function fetchMyProducts(token: string): Promise<Product[]> {
-  const res = await fetch(`${API_BASE_URL}/products/my`, {
+  const res = await fetch(`${API_BASE_URL}/stores/my/products`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -64,7 +65,7 @@ async function createProduct(
   token: string,
   payload: Partial<Product>
 ): Promise<Product> {
-  const res = await fetch(`${API_BASE_URL}/products`, {
+  const res = await fetch(`${API_BASE_URL}/stores/my/products`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -84,7 +85,7 @@ async function updateProduct(
   id: number,
   payload: Partial<Product>
 ): Promise<Product> {
-  const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/stores/my/products/${id}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -103,7 +104,7 @@ async function deleteProduct(
   token: string,
   id: number
 ): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+  const res = await fetch(`${API_BASE_URL}/stores/my/products/${id}`, {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${token}`,
