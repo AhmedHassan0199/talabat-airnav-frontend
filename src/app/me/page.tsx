@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import MainLayout from "../../components/MainLayout";
 import { useAuth } from "../../components/AuthProvider";
 
+
 export default function MyProfilePage() {
   const { user, token, refreshMe, isLoading } = useAuth();
   const router = useRouter();
+
 
   useEffect(() => {
     if (!isLoading && !token) {
@@ -89,11 +91,13 @@ export default function MyProfilePage() {
           {isSeller && (
             <div className="space-y-2 text-sm">
               <p className="text-[var(--text-muted)]">
-                أنت مسجّل كبائع. قريبًا هنعرض هنا بيانات متجرك (الاسم، الوصف،
-                المنتجات، الطلبات، إلخ).
+                أنت مسجّل كبائع. من هنا تقدر تدير بيانات متجرك في السوق.
               </p>
-              <button className="mt-2 w-full rounded-xl border px-3 py-2 text-xs hover:bg-gray-50">
-                إدارة المتجر (قريبًا)
+              <button
+                className="mt-2 w-full rounded-xl border px-3 py-2 text-xs hover:bg-gray-50"
+                onClick={() => router.push("/seller/store")}
+              >
+                إدارة المتجر
               </button>
             </div>
           )}
