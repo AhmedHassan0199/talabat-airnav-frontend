@@ -1,317 +1,528 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import MainLayout from "../../../components/MainLayout";
 import { useAuth } from "../../../components/AuthProvider";
-import {
-  fetchMyProducts,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-  Product,
-  uploadProductImage,
-} from "../../../lib/products";
+import { useRouter } from "next/navigation";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE || "/api";
+
+type SellerStore = {
+  id: number;
+  name: string;
+  description?: string;
+  category: string;
+  min_order_amount: number;
+  delivery_fee: number;
+  profile_image_url?: string;
+  is_active: boolean;
+};
+
+type Product = {
+  id: number;
+  name: string;
+  description?: string;
+  price: number;
+  image_url?: string;
+  stock: number;
+  is_active: boolean;
+};
+
+async function fetchMyStore(token: string): Promise<SellerStore | null> {
+  const res = await fetch(`${API_BASE_URL}/stores/my`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+  if (res.status === 404) {
+    return null;
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "تعذر تحميل بيانات المتجر");
+  }
+  return data;
+}
+
+async function fetchMyProducts(token: string): Promise<Product[]> {
+  const res = await fetch(`${API_BASE_URL}/products/my`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "تعذر تحميل المنتجات");
+  }
+  return data;
+}
+
+async function createProduct(
+  token: string,
+  payload: Partial<Product>
+): Promise<Product> {
+  const res = await fetch(`${API_BASE_URL}/products`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "تعذر إنشاء المنتج");
+  }
+  return data;
+}
+
+async function updateProduct(
+  token: string,
+  id: number,
+  payload: Partial<Product>
+): Promise<Product> {
+  const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "تعذر تحديث المنتج");
+  }
+  return data;
+}
+
+async function deleteProduct(
+  token: string,
+  id: number
+): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/products/${id}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || "تعذر حذف المنتج");
+  }
+}
+
+async function uploadProductImage(
+  token: string,
+  file: File
+): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(
+    `${API_BASE_URL}/uploads/product-image`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    }
+  );
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || "فشل رفع صورة المنتج");
+  }
+  // backend بيرجع { "url": "/media/products/..." }
+  return data.url as string;
+}
 
 export default function SellerProductsPage() {
   const { user, token, isLoading } = useAuth();
   const router = useRouter();
 
+  const [store, setStore] = useState<SellerStore | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [isFetching, setIsFetching] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [loadingStore, setLoadingStore] = useState(true);
+  const [loadingProducts, setLoadingProducts] = useState(true);
 
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const [editingProductId, setEditingProductId] = useState<number | null>(null);
 
   // form fields
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState<string>("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [stock, setStock] = useState<string>("0");
+  const [stock, setStock] = useState<string>("");
+  const [imageUrl, setImageUrl] = useState<string | undefined>(undefined);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [isActive, setIsActive] = useState(true);
 
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  
-  // حماية المسار
+  const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
   useEffect(() => {
     if (isLoading) return;
     if (!token) {
       router.replace("/login");
       return;
     }
-    if (!user) return;
-    if (user.role !== "SELLER") {
-      router.replace("/me");
+    if (user && user.role !== "SELLER") {
+      router.replace("/");
+      return;
     }
-  }, [user, token, isLoading, router]);
 
-  // تحميل المنتجات
-  useEffect(() => {
     const run = async () => {
-      if (!token || !user || user.role !== "SELLER") {
-        setIsFetching(false);
-        return;
-      }
       try {
-        setIsFetching(true);
         setError(null);
-        const data = await fetchMyProducts(token);
-        setProducts(data);
+        setLoadingStore(true);
+        setLoadingProducts(true);
+
+        const [storeRes, productsRes] = await Promise.all([
+          fetchMyStore(token),
+          fetchMyProducts(token),
+        ]);
+
+        if (storeRes) {
+          setStore(storeRes);
+        }
+        setProducts(productsRes);
       } catch (err: any) {
         console.error(err);
-        setError(err.message || "تعذر تحميل المنتجات");
+        setError(err.message || "تعذر تحميل بيانات المتجر أو المنتجات");
       } finally {
-        setIsFetching(false);
+        setLoadingStore(false);
+        setLoadingProducts(false);
       }
     };
+
     run();
-  }, [token, user]);
+  }, [user, token, isLoading, router]);
 
   const resetForm = () => {
-    setEditingId(null);
+    setEditingProductId(null);
     setName("");
     setDescription("");
     setPrice("");
-    setImageUrl("");
-    setStock("0");
+    setStock("");
+    setImageUrl(undefined);
+    setImageFile(null);
     setIsActive(true);
+    setSuccessMsg(null);
+    setError(null);
   };
 
-  const handleEditClick = (product: Product) => {
-    setEditingId(product.id);
-    setName(product.name);
-    setDescription(product.description || "");
-    setPrice(String(product.price));
-    setImageUrl(product.image_url || "");
-    setStock(String(product.stock ?? 0));
-    setIsActive(product.is_active);
-    setSuccess(null);
+  const startEdit = (p: Product) => {
+    setEditingProductId(p.id);
+    setName(p.name);
+    setDescription(p.description || "");
+    setPrice(String(p.price));
+    setStock(String(p.stock));
+    setImageUrl(p.image_url || undefined);
+    setImageFile(null);
+    setIsActive(p.is_active);
+    setSuccessMsg(null);
     setError(null);
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setSuccess(null);
-
-    if (!token) {
-      setError("برجاء تسجيل الدخول مرة أخرى.");
-      return;
-    }
-    if (!name.trim()) {
-      setError("اسم المنتج مطلوب.");
-      return;
-    }
-    if (!price || isNaN(Number(price))) {
-      setError("برجاء إدخال سعر صالح.");
-      return;
-    }
+    if (!token) return;
 
     try {
-      setIsSaving(true);
-      
-      let finalImageUrl = imageUrl.trim() || undefined;
-        // لو فيه فايل جديد مرفوع:
-    if (imageFile && token) {
-        setIsUploading(true);
+      setSaving(true);
+      setSuccessMsg(null);
+      setError(null);
+
+      let finalImageUrl = imageUrl;
+
+      if (imageFile) {
+        setUploadingImage(true);
         try {
-        finalImageUrl = await uploadProductImage(token, imageFile);
+          finalImageUrl = await uploadProductImage(token, imageFile);
         } finally {
-        setIsUploading(false);
+          setUploadingImage(false);
         }
-    }
-    const payload = {
+      }
+
+      const payload: Partial<Product> = {
         name: name.trim(),
         description: description.trim() || undefined,
-        price: Number(price),
+        price: price ? Number(price) : 0,
+        stock: stock ? Number(stock) : 0,
         image_url: finalImageUrl,
-        stock: Number(stock || 0),
         is_active: isActive,
-    };
+      };
 
       let saved: Product;
-      if (editingId) {
-        saved = await updateProduct(token, editingId, payload);
+
+      if (editingProductId) {
+        saved = await updateProduct(token, editingProductId, payload);
         setProducts((prev) =>
           prev.map((p) => (p.id === saved.id ? saved : p))
         );
-        setSuccess("تم حفظ تعديلات المنتج.");
+        setSuccessMsg("تم تحديث المنتج بنجاح ✅");
       } else {
         saved = await createProduct(token, payload);
         setProducts((prev) => [saved, ...prev]);
-        setSuccess("تم إضافة المنتج بنجاح.");
+        setSuccessMsg("تم إضافة المنتج بنجاح ✅");
       }
 
-      resetForm();
+      setEditingProductId(saved.id);
+      setImageFile(null);
+      setImageUrl(saved.image_url || finalImageUrl);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "حدث خطأ أثناء حفظ المنتج");
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (product: Product) => {
+  const handleDelete = async (id: number) => {
     if (!token) return;
-    const ok = confirm(`هل تريد حذف المنتج "${product.name}"؟`);
-    if (!ok) return;
+    if (!confirm("هل أنت متأكد من حذف هذا المنتج؟")) return;
 
     try {
-      await deleteProduct(token, product.id);
-      setProducts((prev) => prev.filter((p) => p.id !== product.id));
+      setDeletingId(id);
+      setError(null);
+      setSuccessMsg(null);
+      await deleteProduct(token, id);
+      setProducts((prev) => prev.filter((p) => p.id !== id));
+      if (editingProductId === id) {
+        resetForm();
+      }
+      setSuccessMsg("تم حذف المنتج بنجاح ✅");
     } catch (err: any) {
       console.error(err);
-      alert(err.message || "تعذر حذف المنتج");
+      setError(err.message || "تعذر حذف المنتج");
+    } finally {
+      setDeletingId(null);
     }
   };
+
+  if (isLoading || !user || !token) {
+    return (
+      <MainLayout>
+        <p className="text-sm text-[var(--text-muted)]">
+          جاري التحقق من حسابك...
+        </p>
+      </MainLayout>
+    );
+  }
+
+  if (user.role !== "SELLER") {
+    return (
+      <MainLayout>
+        <p className="text-sm text-[var(--text-muted)]">
+          هذه الصفحة متاحة للبائعين فقط.
+        </p>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
       <div className="space-y-4">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-xl font-semibold">إدارة المنتجات</h1>
+        {/* الهيدر */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold mb-1">
+              إدارة المنتجات
+            </h1>
+            <p className="text-sm text-[var(--text-muted)]">
+              أضف وعدّل منتجات متجرك، الصور، الأسعار، والكمية المتاحة.
+            </p>
+            {store && (
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                المتجر: <span className="font-semibold">{store.name}</span>
+              </p>
+            )}
+          </div>
+
           <button
-            onClick={() => router.push("/seller/store")}
-            className="text-xs rounded-xl border px-3 py-1 hover:bg-gray-50"
+            type="button"
+            onClick={resetForm}
+            className="mt-2 md:mt-0 rounded-2xl border border-[var(--primary)] text-[var(--primary)] text-sm px-4 py-2 hover:bg-[var(--primary)] hover:text-white"
           >
-            الرجوع لبيانات المتجر
+            إضافة منتج جديد ➕
           </button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          {/* form */}
-          <div className="md:col-span-1 bg-white rounded-2xl shadow-sm p-5">
-            <h2 className="text-lg font-semibold mb-3">
-              {editingId ? "تعديل منتج" : "إضافة منتج جديد"}
-            </h2>
+        {(error || successMsg) && (
+          <div className="space-y-1">
+            {error && (
+              <div className="text-sm text-red-600">{error}</div>
+            )}
+            {successMsg && (
+              <div className="text-sm text-green-600">
+                {successMsg}
+              </div>
+            )}
+          </div>
+        )}
 
-            <form className="space-y-3" onSubmit={handleSubmit}>
+        <div className="grid gap-4 md:grid-cols-5">
+          {/* الفورم */}
+          <div className="md:col-span-2">
+            <form
+              onSubmit={handleSubmit}
+              className="bg-white rounded-2xl shadow-sm p-4 space-y-4"
+            >
+              <h2 className="text-sm font-semibold mb-1">
+                {editingProductId
+                  ? "تعديل المنتج"
+                  : "إضافة منتج جديد"}
+              </h2>
+
+              {/* صورة المنتج */}
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center overflow-hidden">
+                  {imageFile ? (
+                    <img
+                      src={URL.createObjectURL(imageFile)}
+                      alt="صورة المنتج"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : imageUrl ? (
+                    <img
+                      src={imageUrl}
+                      alt="صورة المنتج"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-xs text-gray-400">
+                      لا توجد صورة
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex-1 space-y-1">
+                  <label className="block text-sm font-medium">
+                    صورة المنتج
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setImageFile(file);
+                    }}
+                    className="block w-full text-xs text-gray-500
+                               file:mr-3 file:py-2 file:px-3
+                               file:rounded-xl file:border-0
+                               file:text-xs file:font-semibold
+                               file:bg-[var(--primary)] file:text-white
+                               hover:file:bg-[var(--primary-dark)]"
+                  />
+                  <p className="text-[10px] text-[var(--text-muted)]">
+                    الصورة ستظهر للعملاء في قائمة المنتجات.
+                  </p>
+                </div>
+              </div>
+
+              {/* اسم المنتج */}
               <div>
                 <label className="block mb-1 text-sm font-medium">
                   اسم المنتج
                 </label>
                 <input
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                  type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="مثال: فتوش / سلطة سيزر"
+                  className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                  placeholder="مثال: ملوخية فراش، كنافة بالكريمة..."
+                  required
                 />
               </div>
 
+              {/* الوصف */}
               <div>
                 <label className="block mb-1 text-sm font-medium">
                   وصف المنتج
                 </label>
                 <textarea
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
                   rows={3}
-                  placeholder="مثال: سلطة خضراء طازجة مع صوص خاص..."
+                  placeholder="أكتب مكونات المنتج، الحجم، عدد الأفراد المناسبين..."
                 />
               </div>
 
-              <div className="flex gap-2">
-                <div className="flex-1">
+              {/* السعر + الكمية + الحالة */}
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
                   <label className="block mb-1 text-sm font-medium">
                     السعر (جنيه)
                   </label>
                   <input
                     type="number"
                     min={0}
-                    step="0.5"
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
-                    placeholder="مثال: 40"
+                    className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                    placeholder="مثال: 80"
                   />
                 </div>
-                <div className="flex-1">
+                <div>
                   <label className="block mb-1 text-sm font-medium">
-                    المخزون (عدد الوحدات)
+                    الكمية المتاحة (Stock)
                   </label>
                   <input
                     type="number"
                     min={0}
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
                     value={stock}
                     onChange={(e) => setStock(e.target.value)}
-                    placeholder="مثال: 20"
+                    className="w-full rounded-2xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
+                    placeholder="مثال: 10"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block mb-1 text-sm font-medium">
-                    صورة المنتج
-                </label>
+              <div className="flex items-center gap-2">
                 <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                    const file = e.target.files?.[0] || null;
-                    setImageFile(file);
-                    }}
-                    className="block w-full text-xs text-gray-500
-                            file:mr-3 file:py-2 file:px-3
-                            file:rounded-xl file:border-0
-                            file:text-xs file:font-semibold
-                            file:bg-[var(--primary)] file:text-white
-                            hover:file:bg-[var(--primary-dark)]"
-                />
-                {imageUrl && (
-                    <p className="mt-1 text-[10px] text-[var(--text-muted)]">
-                    تم اختيار صورة. يمكنك استبدالها برفع صورة أخرى.
-                    </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 text-sm">
-                <input
-                  id="isActive"
+                  id="is_active"
                   type="checkbox"
                   checked={isActive}
                   onChange={(e) => setIsActive(e.target.checked)}
+                  className="h-4 w-4"
                 />
-                <label htmlFor="isActive">المنتج متاح حالياً للطلبات</label>
+                <label
+                  htmlFor="is_active"
+                  className="text-xs text-[var(--text-muted)]"
+                >
+                  المنتج متاح للطلب حاليًا
+                </label>
               </div>
 
-              {error && (
-                <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {error}
-                </div>
-              )}
-
-              {success && (
-                <div className="rounded-xl bg-green-50 px-3 py-2 text-sm text-green-700">
-                  {success}
-                </div>
-              )}
-
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2 pt-2">
                 <button
                   type="submit"
-                  disabled={isSaving}
-                  className="flex-1 flex items-center justify-center rounded-xl bg-[var(--primary)] text-white text-sm font-medium px-4 py-2.5 hover:bg-[var(--primary-dark)] transition disabled:opacity-70 disabled:cursor-not-allowed"
+                  disabled={saving || uploadingImage}
+                  className="rounded-2xl bg-[var(--primary)] text-white text-sm px-6 py-2.5 hover:bg-[var(--primary-dark)] disabled:opacity-60"
                 >
-                {isSaving
-                ? isUploading
-                    ? "جاري رفع الصورة وحفظ المنتج..."
-                    : "جاري حفظ المنتج..."
-                : editingId
-                ? "حفظ التعديلات"
-                : "إضافة المنتج"}
-
+                  {saving
+                    ? uploadingImage
+                      ? "جاري رفع الصورة وحفظ المنتج..."
+                      : "جاري حفظ المنتج..."
+                    : editingProductId
+                    ? "حفظ التعديلات"
+                    : "إضافة المنتج"}
                 </button>
-                {editingId && (
+
+                {editingProductId && (
                   <button
                     type="button"
                     onClick={resetForm}
-                    className="rounded-xl border px-3 py-2 text-xs hover:bg-gray-50"
+                    className="text-xs text-[var(--text-muted)] underline"
                   >
                     إلغاء التعديل
                   </button>
@@ -321,79 +532,99 @@ export default function SellerProductsPage() {
           </div>
 
           {/* قائمة المنتجات */}
-          <div className="md:col-span-2 bg-white rounded-2xl shadow-sm p-5">
-            <h2 className="text-lg font-semibold mb-3">قائمة المنتجات</h2>
+          <div className="md:col-span-3">
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <h2 className="text-sm font-semibold mb-3">
+                المنتجات الحالية
+              </h2>
 
-            {isFetching ? (
-              <p className="text-sm text-[var(--text-muted)]">
-                جاري تحميل المنتجات...
-              </p>
-            ) : products.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)]">
-                لا توجد منتجات حتى الآن. يمكنك إضافة أول منتج من النموذج على
-                اليسار.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {products.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex gap-3 border border-gray-100 rounded-2xl p-3 items-center"
-                  >
-                    {p.image_url ? (
-                      <img
-                        src={p.image_url}
-                        alt={p.name}
-                        className="w-16 h-16 rounded-xl object-cover flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center text-xs text-gray-400 flex-shrink-0">
-                        بدون صورة
+              {loadingProducts ? (
+                <p className="text-sm text-[var(--text-muted)]">
+                  جاري تحميل المنتجات...
+                </p>
+              ) : products.length === 0 ? (
+                <p className="text-sm text-[var(--text-muted)]">
+                  لم تقم بإضافة أي منتجات حتى الآن.
+                </p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {products.map((p) => (
+                    <div
+                      key={p.id}
+                      className="border border-gray-100 rounded-2xl p-3 flex gap-3 hover:shadow-sm transition cursor-pointer"
+                      onClick={() => startEdit(p)}
+                    >
+                      <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {p.image_url ? (
+                          <img
+                            src={p.image_url}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-[10px] text-gray-400">
+                            لا صورة
+                          </span>
+                        )}
                       </div>
-                    )}
-
-                    <div className="flex-1 text-sm">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-medium">{p.name}</div>
-                          {p.description && (
-                            <div className="text-xs text-[var(--text-muted)] line-clamp-2">
-                              {p.description}
-                            </div>
-                          )}
+                      <div className="flex-1 text-xs">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-semibold text-sm">
+                            {p.name}
+                          </span>
+                          <span className="font-semibold">
+                            {p.price} ج
+                          </span>
                         </div>
-                        <div className="text-left text-sm font-semibold">
-                          {p.price} ج
+                        {p.description && (
+                          <p className="text-[11px] text-[var(--text-muted)] line-clamp-2">
+                            {p.description}
+                          </p>
+                        )}
+                        <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--text-muted)]">
+                          <span>الكمية: {p.stock}</span>
+                          <span
+                            className={
+                              p.is_active
+                                ? "text-green-600"
+                                : "text-red-500"
+                            }
+                          >
+                            {p.is_active ? "متاح" : "غير متاح"}
+                          </span>
                         </div>
-                      </div>
 
-                      <div className="mt-1 flex items-center justify-between text-xs text-[var(--text-muted)]">
-                        <span>المخزون: {p.stock}</span>
-                        <span>
-                          الحالة:{" "}
-                          {p.is_active ? "متاح" : "موقوف مؤقتاً"}
-                        </span>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEdit(p);
+                            }}
+                            className="rounded-xl border px-3 py-1 text-[11px] hover:bg-gray-100"
+                          >
+                            تعديل
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(p.id);
+                            }}
+                            disabled={deletingId === p.id}
+                            className="rounded-xl border border-red-300 text-red-600 px-3 py-1 text-[11px] hover:bg-red-50 disabled:opacity-60"
+                          >
+                            {deletingId === p.id
+                              ? "جاري الحذف..."
+                              : "حذف"}
+                          </button>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="flex flex-col gap-1">
-                      <button
-                        className="text-xs rounded-xl border px-2 py-1 hover:bg-gray-50"
-                        onClick={() => handleEditClick(p)}
-                      >
-                        تعديل
-                      </button>
-                      <button
-                        className="text-xs rounded-xl border px-2 py-1 text-red-600 hover:bg-red-50"
-                        onClick={() => handleDelete(p)}
-                      >
-                        حذف
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

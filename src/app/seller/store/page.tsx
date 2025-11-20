@@ -83,7 +83,6 @@ async function uploadStoreImage(
   if (!res.ok) {
     throw new Error(data.message || "فشل رفع صورة المتجر");
   }
-  // backend بيرجع { "url": "/media/stores/..." }
   return data.url as string;
 }
 
@@ -115,7 +114,6 @@ export default function SellerStorePage() {
       return;
     }
     if (user && user.role !== "SELLER") {
-      // ممكن نغيرها بعدين لتعامل ألطف
       router.replace("/");
       return;
     }
@@ -219,14 +217,25 @@ export default function SellerStorePage() {
   return (
     <MainLayout>
       <div className="space-y-4">
-        <div>
-          <h1 className="text-xl font-semibold mb-1">
-            إدارة بيانات المتجر
-          </h1>
-          <p className="text-sm text-[var(--text-muted)]">
-            عدّل اسم المتجر، الوصف، معلومات الطلب، وصورة البروفايل
-            التي ستظهر للعملاء في صفحة سوق الكمبوند.
-          </p>
+        {/* العنوان + زر إدارة المنتجات */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold mb-1">
+              إدارة بيانات المتجر
+            </h1>
+            <p className="text-sm text-[var(--text-muted)]">
+              عدّل اسم المتجر، الوصف، معلومات الطلب، وصورة البروفايل
+              التي ستظهر للعملاء في صفحة سوق الكمبوند.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => router.push("/seller/products")}
+            className="mt-2 md:mt-0 rounded-2xl bg-[var(--primary)] text-white text-sm px-4 py-2 hover:bg-[var(--primary-dark)]"
+          >
+            إدارة المنتجات 🍽️
+          </button>
         </div>
 
         {loadingStore ? (
