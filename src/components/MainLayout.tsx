@@ -55,6 +55,16 @@ export default function MainLayout({ children }: { children: ReactNode }) {
               </Link>
             </div>
 
+            {/* 👇 زر إدارة المتجر – يظهر فقط للبائع */}
+            {user?.role === "SELLER" && (
+              <Link
+                href="/seller/store"
+                className="rounded-full border px-2 py-1 text-xs hover:bg-gray-100"
+                title="إدارة المتجر"
+              >
+                🏬
+              </Link>)}
+
             {/* زر تسجيل الخروج */}
             <button
               onClick={handleLogout}
