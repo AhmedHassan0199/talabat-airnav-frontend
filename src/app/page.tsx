@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import MainLayout from "../components/MainLayout";
+import { useAuth } from "../components/AuthProvider";
 import { fetchStores, PublicStore } from "../lib/publicStores";
 import Link from "next/link";
 
@@ -19,18 +21,32 @@ const CATEGORY_CHIPS: { key: string; label: string }[] = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
+  const { user, token, isLoading } = useAuth();
+
   const [stores, setStores] = useState<PublicStore[]>([]);
   const [filtered, setFiltered] = useState<PublicStore[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingStores, setIsLoadingStores] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
 
+  // 🔐 حماية الهوم: لو مفيش token نرجع على /login
   useEffect(() => {
+    if (isLoading) return; // لسه بيشيّك من localStorage
+    if (!token) {
+      router.replace("/login");
+    }
+  }, [token, isLoading, router]);
+
+  // 🧠 تحميل المتاجر بعد التأكد إن في token
+  useEffect(() => {
+    if (!token) return;
+
     const run = async () => {
       try {
-        setIsLoading(true);
+        setIsLoadingStores(true);
         setError(null);
         const data = await fetchStores();
         setStores(data);
@@ -39,13 +55,13 @@ export default function HomePage() {
         console.error(err);
         setError(err.message || "تعذر تحميل المتاجر");
       } finally {
-        setIsLoading(false);
+        setIsLoadingStores(false);
       }
     };
     run();
-  }, []);
+  }, [token]);
 
-  // فلترة محلية بالسيرش و الكاتيجوري
+  // فلترة محلية بالسيرش والكاتيجوري
   useEffect(() => {
     let result = [...stores];
 
@@ -64,6 +80,17 @@ export default function HomePage() {
 
     setFiltered(result);
   }, [stores, search, selectedCategory]);
+
+  // أثناء التحقق من الـ token أو أثناء التحويل على /login
+  if (isLoading || !token) {
+    return (
+      <MainLayout>
+        <p className="text-sm text-[var(--text-muted)]">
+          جاري التحقق من حسابك...
+        </p>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -108,7 +135,7 @@ export default function HomePage() {
 
         {/* Stores list */}
         <div className="mt-1">
-          {isLoading ? (
+          {isLoadingStores ? (
             <p className="text-sm text-[var(--text-muted)]">
               جاري تحميل المتاجر...
             </p>
