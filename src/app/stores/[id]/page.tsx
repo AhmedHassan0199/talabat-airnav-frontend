@@ -1,46 +1,65 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuth } from "../../../components/AuthProvider";
-import { useRouter, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import MainLayout from "../../../components/MainLayout";
-import { fetchStoreWithProducts, StoreWithProducts } from "../../../lib/publicStores";
-import { fetchStoreReviews, addOrUpdateStoreReview, StoreReview } from "../../../lib/reviews";
+import { useCart } from "../../../components/CartProvider";
 
-const CATEGORY_LABELS: Record<string, string> = {
-  FOOD: "أكل بيتي / مطبخ",
-  DESSERT: "حلويات",
-  CLOTHES: "ملابس",
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE || "/api";
+
+type StoreDetails = {
+  id: number;
+  name: string;
+  description?: string;
+  category: string;
+  min_order_amount: number;
+  delivery_fee: number;
+  profile_image_url?: string;
+  avg_rating?: number;
+  reviews_count?: number;
 };
 
-export default function StoreDetailsPage() {
-  const router = useRouter();
-  const params = useParams<{ id: string }>();
+type StoreProduct = {
+  id: number;
+  name: string;
+  description?: string;
+  price: number;
+  image_url?: string;
+  stock: number;
+  is_active: boolean;
+};
 
-  const [data, setData] = useState<StoreWithProducts | null>(null);
+export default function StorePage() {
+  const params = useParams();
+  const storeId = Number(params?.id);
+
+  const { addItem } = useCart();
+
+  const [store, setStore] = useState<StoreDetails | null>(null);
+  const [products, setProducts] = useState<StoreProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const { user, token } = useAuth();
-  const [reviews, setReviews] = useState<StoreReview[]>([]);
-  const [rating, setRating] = useState<number>(5);
-  const [comment, setComment] = useState("");
-  const [savingReview, setSavingReview] = useState(false);
-  const [reviewsError, setReviewsError] = useState<string | null>(null);
-
+  const [selectedProduct, setSelectedProduct] =
+    useState<StoreProduct | null>(null);
+  const [modalQty, setModalQty] = useState<number>(1);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   useEffect(() => {
-    const id = Number(params.id);
-    if (!id) return;
+    if (!storeId) return;
 
     const run = async () => {
       try {
-        const [storeRes, reviewsRes] = await Promise.all([
-          fetchStoreWithProducts(id),
-          fetchStoreReviews(id),
-        ]);
-        setData(storeRes);
-        setReviews(reviewsRes);
+        setIsLoading(true);
+        setError(null);
+        const res = await fetch(`${API_BASE_URL}/stores/${storeId}`);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || "تعذر تحميل بيانات المتجر");
+        }
+        setStore(data.store);
+        setProducts(data.products || []);
       } catch (err: any) {
         console.error(err);
         setError(err.message || "تعذر تحميل بيانات المتجر");
@@ -48,32 +67,46 @@ export default function StoreDetailsPage() {
         setIsLoading(false);
       }
     };
-    run();
-  }, [params.id]);
 
-  const store = data?.store;
+    run();
+  }, [storeId]);
+
+  const openProductModal = (product: StoreProduct) => {
+    setSelectedProduct(product);
+    setModalQty(1);
+    setModalError(null);
+  };
+
+  const closeProductModal = () => {
+    setSelectedProduct(null);
+    setModalQty(1);
+    setModalError(null);
+  };
+
+  const handleAddToCart = () => {
+    if (!selectedProduct || !store) return;
+    if (modalQty <= 0) {
+      setModalError("الكمية يجب أن تكون 1 على الأقل");
+      return;
+    }
+    addItem(
+      store.id,
+      store.name,
+      {
+        productId: selectedProduct.id,
+        name: selectedProduct.name,
+        price: selectedProduct.price,
+        imageUrl: selectedProduct.image_url,
+      },
+      modalQty
+    );
+    closeProductModal();
+  };
 
   return (
     <MainLayout>
       <div className="space-y-4">
-        {/* أعلى الصفحة: Back + اسم المتجر */}
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => router.back()}
-            className="text-xs rounded-xl border px-3 py-1 hover:bg-gray-50"
-          >
-            ⟵ رجوع
-          </button>
-          {store && (
-            <div className="text-right">
-              <h1 className="text-xl font-semibold">{store.name}</h1>
-              <p className="text-xs text-[var(--text-muted)]">
-                {CATEGORY_LABELS[store.category] || store.category}
-              </p>
-            </div>
-          )}
-        </div>
-
+        {/* Header / store info */}
         {isLoading ? (
           <p className="text-sm text-[var(--text-muted)]">
             جاري تحميل بيانات المتجر...
@@ -82,218 +115,102 @@ export default function StoreDetailsPage() {
           <p className="text-sm text-red-600">{error}</p>
         ) : !store ? (
           <p className="text-sm text-[var(--text-muted)]">
-            المتجر غير متاح حالياً.
+            المتجر غير متاح.
           </p>
         ) : (
           <>
-            {/* كروت معلومات المتجر */}
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="md:col-span-2 bg-white rounded-2xl shadow-sm p-4 flex gap-3">
-                {store.profile_image_url && (
+            <div className="flex gap-3 items-start">
+              <div className="w-20 h-20 rounded-2xl bg-gray-100 overflow-hidden flex-shrink-0">
+                {store.profile_image_url ? (
                   <img
                     src={store.profile_image_url}
                     alt={store.name}
-                    className="w-20 h-20 rounded-xl object-cover flex-shrink-0"
+                    className="w-full h-full object-cover"
                   />
-                )}
-                <div>
-                  <h2 className="text-lg font-semibold mb-1">{store.name}</h2>
-                  <p className="text-xs text-[var(--text-muted)] mb-1">
-                    {CATEGORY_LABELS[store.category] || store.category}
-                  </p>
-                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                    <span>⭐ {store.avg_rating.toFixed(1)}</span>
-                    <span>({store.reviews_count} تقييم)</span>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
+                    لا صورة
                   </div>
-                  <p className="mt-2 text-sm text-[var(--text-muted)]">
-                    {store.description || "لا يوجد وصف متاح حتى الآن."}
-                  </p>
-                </div>
+                )}
               </div>
-              <div className="bg-white rounded-2xl shadow-sm p-4 text-sm">
-                <h2 className="text-sm font-semibold mb-2">تفاصيل الطلب</h2>
-                <p className="mb-1">
-                  <span className="text-[var(--text-muted)]">
-                    أقل قيمة للطلب:
-                  </span>{" "}
-                  <span className="font-semibold">
-                    {store.min_order_amount} ج
+              <div className="flex-1">
+                <h1 className="text-xl font-semibold mb-1">
+                  {store.name}
+                </h1>
+                {store.description && (
+                  <p className="text-sm text-[var(--text-muted)] mb-1">
+                    {store.description}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2 text-xs text-[var(--text-muted)]">
+                  <span>
+                    الحد الأدنى للطلب: {store.min_order_amount} ج
                   </span>
-                </p>
-                <p>
-                  <span className="text-[var(--text-muted)]">
-                    مصاريف التوصيل:
-                  </span>{" "}
-                  <span className="font-semibold">
-                    {store.delivery_fee} ج
-                  </span>
-                </p>
+                  <span>•</span>
+                  <span>التوصيل: {store.delivery_fee} ج</span>
+                  {typeof store.avg_rating === "number" &&
+                    store.reviews_count !== undefined && (
+                      <>
+                        <span>•</span>
+                        <span>
+                          ⭐ {store.avg_rating} ({store.reviews_count} تقييم)
+                        </span>
+                      </>
+                    )}
+                </div>
               </div>
             </div>
 
-            {/* قائمة المنتجات */}
-            <div className="bg-white rounded-2xl shadow-sm p-4 mt-2">
-              <h2 className="text-lg font-semibold mb-3">
+            {/* Products grid */}
+            <div>
+              <h2 className="text-sm font-semibold mb-2">
                 قائمة المنتجات
               </h2>
-
-              {data!.products.length === 0 ? (
+              {products.length === 0 ? (
                 <p className="text-sm text-[var(--text-muted)]">
-                  لا توجد منتجات مضافة بعد لهذا المتجر.
+                  لا توجد منتجات متاحة حاليًا في هذا المتجر.
                 </p>
               ) : (
-                <div className="space-y-3">
-                  {data!.products.map((p) => (
-                    <div
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {products.map((p) => (
+                    <button
                       key={p.id}
-                      className="flex gap-3 border border-gray-100 rounded-2xl p-3 items-center"
+                      type="button"
+                      onClick={() => openProductModal(p)}
+                      className="text-right bg-white rounded-2xl border border-gray-100 shadow-sm p-3 hover:shadow-md transition flex flex-col gap-2"
                     >
-                      {p.image_url ? (
-                        <img
-                          src={p.image_url}
-                          alt={p.name}
-                          className="w-20 h-20 rounded-xl object-cover flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center text-xs text-gray-400 flex-shrink-0">
-                          بدون صورة
-                        </div>
-                      )}
-
-                      <div className="flex-1 text-sm">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-medium">{p.name}</div>
-                            {p.description && (
-                              <div className="text-xs text-[var(--text-muted)] line-clamp-2">
-                                {p.description}
-                              </div>
-                            )}
+                      <div className="w-full h-32 rounded-xl bg-gray-100 overflow-hidden">
+                        {p.image_url ? (
+                          <img
+                            src={p.image_url}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[11px] text-gray-400">
+                            لا صورة
                           </div>
-                          <div className="text-left text-sm font-semibold">
-                            {p.price} ج
-                          </div>
-                        </div>
-
-                        <div className="mt-1 flex items-center justify-between text-xs text-[var(--text-muted)]">
-                          <span>المخزون: {p.stock}</span>
-                          {p.stock <= 0 && (
-                            <span className="text-red-500">غير متوفر حالياً</span>
-                          )}
-                        </div>
+                        )}
                       </div>
-
-                      {/* Placeholder للـ Cart – هنكملها بعدين */}
-                      <button
-                        className="text-xs rounded-xl bg-[var(--primary)] text-white px-3 py-1.5 hover:bg-[var(--primary-dark)] disabled:opacity-60"
-                        disabled={p.stock <= 0}
-                        // onClick={() => addToCartLater(p)}
-                      >
-                        إضافة للسلة
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {/* المراجعات */}
-            <div className="bg-white rounded-2xl shadow-sm p-4 mt-4">
-              <h2 className="text-lg font-semibold mb-3">آراء العملاء</h2>
-
-              {/* إضافة مراجعة */}
-              {user && user.role === "CUSTOMER" ? (
-                <form
-                  className="mb-4 space-y-2"
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!token || !store) return;
-                    try {
-                      setSavingReview(true);
-                      setReviewsError(null);
-                      const saved = await addOrUpdateStoreReview(
-                        token,
-                        store.id,
-                        rating,
-                        comment
-                      );
-                      // حدّث الليست (لو هو كان موجود قبل كده استبدله)
-                      setReviews((prev) => {
-                        const idx = prev.findIndex((r) => r.id === saved.id);
-                        if (idx >= 0) {
-                          const copy = [...prev];
-                          copy[idx] = saved;
-                          return copy;
-                        }
-                        return [saved, ...prev];
-                      });
-                    } catch (err: any) {
-                      console.error(err);
-                      setReviewsError(err.message || "تعذر حفظ المراجعة");
-                    } finally {
-                      setSavingReview(false);
-                    }
-                  }}
-                >
-                  <div className="flex items-center gap-2 text-xs">
-                    <span>تقييمك:</span>
-                    <select
-                      value={rating}
-                      onChange={(e) => setRating(Number(e.target.value))}
-                      className="rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                    >
-                      {[5, 4, 3, 2, 1].map((r) => (
-                        <option key={r} value={r}>
-                          {r} ⭐
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <textarea
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
-                    placeholder="اكتب رأيك عن المتجر أو الخدمة..."
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    rows={3}
-                  />
-                  {reviewsError && (
-                    <div className="text-xs text-red-600">{reviewsError}</div>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={savingReview}
-                    className="rounded-xl bg-[var(--primary)] text-white text-sm px-4 py-2 hover:bg-[var(--primary-dark)] disabled:opacity-60"
-                  >
-                    {savingReview ? "جاري الحفظ..." : "إرسال التقييم"}
-                  </button>
-                </form>
-              ) : (
-                <p className="text-xs text-[var(--text-muted)] mb-3">
-                  قم بتسجيل الدخول كعميل لكتابة تقييمك.
-                </p>
-              )}
-
-              {/* عرض المراجعات */}
-              {reviews.length === 0 ? (
-                <p className="text-sm text-[var(--text-muted)]">
-                  لا توجد مراجعات بعد لهذا المتجر.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {reviews.map((r) => (
-                    <div
-                      key={r.id}
-                      className="border border-gray-100 rounded-2xl p-3 text-sm"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium">{r.customer_name}</span>
-                        <span className="text-xs">
-                          ⭐ {r.rating}
+                      <div className="flex-1 flex flex-col gap-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-sm">
+                            {p.name}
+                          </span>
+                          <span className="font-semibold">
+                            {p.price} ج
+                          </span>
+                        </div>
+                        {p.description && (
+                          <p className="text-[11px] text-[var(--text-muted)] line-clamp-2">
+                            {p.description}
+                          </p>
+                        )}
+                        <span className="text-[11px] text-[var(--text-muted)]">
+                          الكمية المتاحة: {p.stock}
                         </span>
                       </div>
-                      {r.comment && (
-                        <p className="text-xs text-[var(--text-muted)]">{r.comment}</p>
-                      )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -301,6 +218,105 @@ export default function StoreDetailsPage() {
           </>
         )}
       </div>
+
+      {/* Floating Product Modal */}
+      {selectedProduct && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 flex items-end md:items-center justify-center"
+          onClick={closeProductModal}
+        >
+          <div
+            className="w-full md:max-w-md bg-white rounded-t-3xl md:rounded-3xl p-4 space-y-3 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-1">
+              <h2 className="text-base font-semibold">
+                {selectedProduct.name}
+              </h2>
+              <button
+                className="text-xs text-[var(--text-muted)]"
+                onClick={closeProductModal}
+              >
+                إغلاق ✕
+              </button>
+            </div>
+
+            <div className="w-full h-48 rounded-2xl bg-gray-100 overflow-hidden">
+              {selectedProduct.image_url ? (
+                <img
+                  src={selectedProduct.image_url}
+                  alt={selectedProduct.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
+                  لا صورة
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">
+                  {selectedProduct.price} ج
+                </span>
+                <span className="text-xs text-[var(--text-muted)]">
+                  الكمية المتاحة: {selectedProduct.stock}
+                </span>
+              </div>
+              {selectedProduct.description && (
+                <p className="text-xs text-[var(--text-muted)]">
+                  {selectedProduct.description}
+                </p>
+              )}
+            </div>
+
+            {/* Quantity selector (+ on right, - on left) */}
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs text-[var(--text-muted)]">
+                الكمية
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModalQty((q) => (q > 1 ? q - 1 : 1))
+                  }
+                  className="w-8 h-8 rounded-full border flex items-center justify-center text-base"
+                >
+                  -
+                </button>
+                <span className="min-w-[24px] text-center text-sm font-semibold">
+                  {modalQty}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModalQty((q) =>
+                      q < selectedProduct.stock ? q + 1 : q
+                    )
+                  }
+                  className="w-8 h-8 rounded-full border flex items-center justify-center text-base"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {modalError && (
+              <p className="text-xs text-red-600">{modalError}</p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleAddToCart}
+              className="w-full mt-2 rounded-2xl bg-[var(--primary)] text-white text-sm py-2.5 hover:bg-[var(--primary-dark)]"
+            >
+              إضافة إلى السلة
+            </button>
+          </div>
+        </div>
+      )}
     </MainLayout>
   );
 }

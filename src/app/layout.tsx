@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { ReactNode } from "react";
 import { AuthProvider } from "../components/AuthProvider";
+import { CartProvider } from "../components/CartProvider";
 
 export const metadata: Metadata = {
   title: "سوق الكمبوند",
@@ -12,7 +13,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ar" dir="rtl">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <CartProvider>
+            {children}
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );
