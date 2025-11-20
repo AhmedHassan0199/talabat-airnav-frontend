@@ -10,6 +10,7 @@ import {
   updateProduct,
   deleteProduct,
   Product,
+  uploadProductImage,
 } from "../../../lib/products";
 
 export default function SellerProductsPage() {
@@ -304,7 +305,7 @@ export default function SellerProductsPage() {
                 : editingId
                 ? "حفظ التعديلات"
                 : "إضافة المنتج"}
-                
+
                 </button>
                 {editingId && (
                   <button
