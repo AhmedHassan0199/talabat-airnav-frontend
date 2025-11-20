@@ -28,7 +28,7 @@ export default function LoginPage() {
       setIsSubmitting(true);
       const resp = await loginUser(usernameOrEmail, password);
       login(resp);
-      router.push("/me");
+      router.push("/");
     } catch (err: any) {
       setError(err.message || "خطأ في تسجيل الدخول");
     } finally {

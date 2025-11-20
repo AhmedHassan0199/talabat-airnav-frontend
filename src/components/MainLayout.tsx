@@ -1,46 +1,37 @@
-"use client";
-
-import { ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "./AuthProvider";
 
-export default function MainLayout({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
-  const router = useRouter();
-
-  const handleLogout = () => {
-    logout();
-    router.push("/login");
-  };
+export default function MainLayout({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
 
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--bg)]">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-semibold text-[var(--primary)]">
-              سوق الكمبوند
-            </span>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
-            {user && (
-              <span>
-                {user.full_name} ({user.role})
-              </span>
-            )}
-            <button
-              onClick={handleLogout}
-              className="rounded-xl border px-3 py-1 text-xs hover:bg-gray-100"
-            >
-              تسجيل الخروج
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6">
-        {children}
-      </main>
+      {/* NAVBAR */}
+      <nav className="w-full bg-white shadow-sm px-4 py-3 flex items-center justify-between">
+        
+        {/* Left — App Name */}
+        <Link href="/" className="text-lg font-semibold">
+          سوق الكمبوند
+        </Link>
+
+        {/* Right — Icons */}
+        <div className="flex items-center gap-4 text-xl">
+          
+          {/* Home */}
+          <Link href="/" className="hover:text-[var(--primary)] transition">
+            🏠
+          </Link>
+
+          {/* Profile */}
+          <Link href="/me" className="hover:text-[var(--primary)] transition">
+            👤
+          </Link>
+        </div>
+      </nav>
+
+      {/* PAGE CONTENT */}
+      <main className="flex-1 p-4">{children}</main>
     </div>
   );
 }
