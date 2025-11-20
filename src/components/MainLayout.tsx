@@ -2,16 +2,35 @@
 
 import { ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "./AuthProvider";
+import { useCart } from "./CartProvider";
 
 export default function MainLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const { cart } = useCart();
+  const pathname = usePathname();
 
   const handleLogout = () => {
     logout();
     router.push("/login");
+  };
+  const cartItemsCount = cart.items.reduce(
+    (sum, it) => sum + it.quantity,
+    0
+  );
+
+  const goHome = () => {
+    router.push("/");
+  };
+
+  const goProfile = () => {
+    router.push("/me");
+  };
+
+  const goCart = () => {
+    router.push("/cart");
   };
 
   return (
@@ -33,7 +52,6 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                 {user.full_name} ({user.role})
               </span>
             )}
-
             {/* أيقونات التنقل */}
             <div className="flex items-center gap-2 text-base">
               {/* Home */}
@@ -54,7 +72,6 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                 👤
               </Link>
             </div>
-
             {/* 👇 زر إدارة المتجر – يظهر فقط للبائع */}
             {user?.role === "SELLER" && (
               <Link
@@ -63,7 +80,26 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                 title="إدارة المتجر"
               >
                 🏬
-              </Link>)}
+              </Link>
+            )}
+            {/* Cart button – mainly for CUSTOMERS */}
+            {user?.role === "CUSTOMER" && (
+              <button
+                onClick={goCart}
+                className={`relative flex items-center justify-center rounded-xl border px-3 py-1 text-xs hover:bg-gray-100 ${
+                  pathname === "/cart"
+                    ? "border-[var(--primary)] text-[var(--primary)]"
+                    : ""
+                }`}
+              >
+                🛒
+                {cartItemsCount > 0 && (
+                  <span className="absolute -top-1 -left-1 min-w-[18px] h-[18px] rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center">
+                    {cartItemsCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* زر تسجيل الخروج */}
             <button

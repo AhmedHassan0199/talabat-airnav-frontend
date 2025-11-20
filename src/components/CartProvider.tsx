@@ -6,6 +6,7 @@ import {
   useState,
   ReactNode,
   useMemo,
+  useEffect,
 } from "react";
 
 export type CartItem = {
@@ -37,12 +38,40 @@ type CartContextValue = {
 
 const CartContext = createContext<CartContextValue | undefined>(undefined);
 
+const STORAGE_KEY = "market_cart_v1";
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartState>({
     storeId: null,
     storeName: undefined,
     items: [],
   });
+
+  // Load from localStorage once on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object" && "items" in parsed) {
+          setCart(parsed);
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to parse saved cart:", e);
+    }
+  }, []);
+
+  // Save to localStorage whenever cart changes
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cart));
+    } catch (e) {
+      console.warn("Failed to save cart:", e);
+    }
+  }, [cart]);
 
   const addItem = (
     storeId: number,
@@ -59,14 +88,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
         if (!ok) {
           return prev;
         }
-        // clear and start new store
+        // start new cart with this store
         return {
           storeId,
           storeName,
           items: [
             {
               ...item,
-              quantity: quantity,
+              quantity,
             },
           ],
         };
@@ -76,7 +105,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (existing) {
         return {
           ...prev,
-          storeId: storeId,
+          storeId,
           storeName,
           items: prev.items.map((i) =>
             i.productId === item.productId
@@ -84,20 +113,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
               : i
           ),
         };
-      } else {
-        return {
-          ...prev,
-          storeId: storeId,
-          storeName,
-          items: [
-            ...prev.items,
-            {
-              ...item,
-              quantity,
-            },
-          ],
-        };
       }
+
+      return {
+        ...prev,
+        storeId,
+        storeName,
+        items: [
+          ...prev.items,
+          {
+            ...item,
+            quantity,
+          },
+        ],
+      };
     });
   };
 
@@ -151,8 +180,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
 export function useCart() {
   const ctx = useContext(CartContext);
-  if (!ctx) {
-    throw new Error("useCart must be used within CartProvider");
-  }
+  if (!ctx) throw new Error("useCart must be used within CartProvider");
   return ctx;
 }
