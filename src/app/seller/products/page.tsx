@@ -32,6 +32,9 @@ export default function SellerProductsPage() {
   const [stock, setStock] = useState<string>("0");
   const [isActive, setIsActive] = useState(true);
 
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  
   // حماية المسار
   useEffect(() => {
     if (isLoading) return;
@@ -109,15 +112,25 @@ export default function SellerProductsPage() {
 
     try {
       setIsSaving(true);
-
-      const payload = {
+      
+      let finalImageUrl = imageUrl.trim() || undefined;
+        // لو فيه فايل جديد مرفوع:
+    if (imageFile && token) {
+        setIsUploading(true);
+        try {
+        finalImageUrl = await uploadProductImage(token, imageFile);
+        } finally {
+        setIsUploading(false);
+        }
+    }
+    const payload = {
         name: name.trim(),
         description: description.trim() || undefined,
         price: Number(price),
-        image_url: imageUrl.trim() || undefined,
+        image_url: finalImageUrl,
         stock: Number(stock || 0),
         is_active: isActive,
-      };
+    };
 
       let saved: Product;
       if (editingId) {
@@ -233,14 +246,27 @@ export default function SellerProductsPage() {
 
               <div>
                 <label className="block mb-1 text-sm font-medium">
-                  رابط صورة المنتج (اختياري)
+                    صورة المنتج
                 </label>
                 <input
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)]"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://..."
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setImageFile(file);
+                    }}
+                    className="block w-full text-xs text-gray-500
+                            file:mr-3 file:py-2 file:px-3
+                            file:rounded-xl file:border-0
+                            file:text-xs file:font-semibold
+                            file:bg-[var(--primary)] file:text-white
+                            hover:file:bg-[var(--primary-dark)]"
                 />
+                {imageUrl && (
+                    <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                    تم اختيار صورة. يمكنك استبدالها برفع صورة أخرى.
+                    </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2 text-sm">
@@ -271,11 +297,14 @@ export default function SellerProductsPage() {
                   disabled={isSaving}
                   className="flex-1 flex items-center justify-center rounded-xl bg-[var(--primary)] text-white text-sm font-medium px-4 py-2.5 hover:bg-[var(--primary-dark)] transition disabled:opacity-70 disabled:cursor-not-allowed"
                 >
-                  {isSaving
-                    ? "جاري الحفظ..."
-                    : editingId
-                    ? "حفظ التعديلات"
-                    : "إضافة المنتج"}
+                {isSaving
+                ? isUploading
+                    ? "جاري رفع الصورة وحفظ المنتج..."
+                    : "جاري حفظ المنتج..."
+                : editingId
+                ? "حفظ التعديلات"
+                : "إضافة المنتج"}
+                
                 </button>
                 {editingId && (
                   <button
