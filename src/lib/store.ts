@@ -22,17 +22,18 @@ export async function fetchMyStore(token: string): Promise<StoreInfo | null> {
   });
 
   if (res.status === 404) {
-    // مفيش متجر لسه
+    // ✅ عادي جداً – مفيش متجر لسه
     return null;
   }
 
   const data = await res.json();
+
   if (!res.ok) {
     throw new Error(data.message || "تعذر تحميل بيانات المتجر");
   }
+
   return data;
 }
-
 export async function saveMyStore(
   token: string,
   payload: {
